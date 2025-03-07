@@ -1,61 +1,18 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execPromise = promisify(exec);
+import * as reminders from 'node-reminders';
 
 /**
- * Execute an AppleScript command
+ * Format a date string for consistency
  */
-async function runAppleScript(script: string): Promise<string> {
-  try {
-    const { stdout } = await execPromise(`osascript -e '${script.replace(/'/g, "'\\''")}'`);
-    return stdout.trim();
-  } catch (error) {
-    console.error('AppleScript execution error:', error);
-    throw new Error(`Failed to execute AppleScript: ${error}`);
-  }
-}
-
-/**
- * Format a date string for AppleScript
- */
-function formatDateForAppleScript(dateString: string): string {
-  // Parse the ISO date string
-  const date = new Date(dateString);
-  
-  // Format for AppleScript: "month/day/year hour:minute:00 AM/PM"
-  const month = date.getMonth() + 1; // getMonth() is 0-indexed
-  const day = date.getDate();
-  const year = date.getFullYear();
-  
-  let hours = date.getHours();
-  const minutes = date.getMinutes();
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  
-  // Convert to 12-hour format
-  hours = hours % 12;
-  hours = hours ? hours : 12; // the hour '0' should be '12'
-  
-  // Format the date string
-  return `${month}/${day}/${year} ${hours}:${minutes.toString().padStart(2, '0')}:00 ${ampm}`;
-}
-
-/**
- * Try to parse an AppleScript date string to ISO format
- */
-function parseAppleScriptDate(dateString: string): string | null {
-  if (!dateString || dateString === 'missing value') return null;
+function formatDate(date: Date | string | null): string | null {
+  if (!date) return null;
   
   try {
-    // Try to parse the date - this is a best effort since AppleScript
-    // returns dates in various formats
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) {
-      return dateString; // Return original if parsing fails
-    }
-    return date.toISOString();
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    if (isNaN(dateObj.getTime())) return null;
+    return dateObj.toISOString();
   } catch (error) {
-    return dateString; // Return original if parsing fails
+    console.error('Date formatting error:', error);
+    return null;
   }
 }
 
@@ -63,126 +20,154 @@ function parseAppleScriptDate(dateString: string): string | null {
  * Get all reminder lists
  */
 export async function getRemindersLists(): Promise<string[]> {
-  const script = `
-    tell application "Reminders"
-      set listNames to {}
-      repeat with aList in lists
-        set end of listNames to name of aList
-      end repeat
-      return listNames
-    end tell
-  `;
-  
-  const result = await runAppleScript(script);
-  return result.split(', ');
+  try {
+    const lists = await reminders.getLists();
+    return lists.map(list => list.name);
+  } catch (error) {
+    console.error('Failed to get reminder lists:', error);
+    throw new Error(`Failed to get reminder lists: ${error}`);
+  }
 }
 
 /**
  * Get reminders from a specific list
  */
 export async function getRemindersFromList(listName: string): Promise<any[]> {
-  const script = `
-    tell application "Reminders"
-      set reminderItems to {}
-      set targetList to list "${listName}"
-      set allReminders to reminders in targetList
-      repeat with aReminder in allReminders
-        set reminderName to name of aReminder
-        set reminderCompleted to completed of aReminder
-        set reminderDueDate to ""
-        try
-          set reminderDueDate to due date of aReminder as string
-        end try
-        set reminderPriority to priority of aReminder
-        set end of reminderItems to reminderName & "|" & reminderCompleted & "|" & reminderDueDate & "|" & reminderPriority
-      end repeat
-      return reminderItems
-    end tell
-  `;
-  
-  const result = await runAppleScript(script);
-  if (!result) return [];
-  
-  return result.split(', ').map(item => {
-    const [name, completed, dueDate, priority] = item.split('|');
-    return {
-      name,
-      completed: completed === 'true',
-      dueDate: parseAppleScriptDate(dueDate),
-      priority: parseInt(priority) || 0
-    };
-  });
+  try {
+    // First get the list ID by name
+    const lists = await reminders.getLists();
+    const targetList = lists.find(list => list.name === listName);
+    
+    if (!targetList) {
+      throw new Error(`List "${listName}" not found`);
+    }
+    
+    // Get reminders from the list with specific properties
+    const reminderItems = await reminders.getReminders(
+      targetList.id,
+      ['name', 'completed', 'dueDate', 'priority', 'body']
+    );
+    
+    // Format the reminders to match the expected output format
+    return reminderItems.map(item => ({
+      name: item.name,
+      completed: item.completed || false,
+      dueDate: formatDate(item.dueDate),
+      priority: item.priority || 0,
+      notes: item.body
+    }));
+  } catch (error) {
+    console.error(`Failed to get reminders from list "${listName}":`, error);
+    throw new Error(`Failed to get reminders from list "${listName}": ${error}`);
+  }
 }
 
 /**
  * Create a new reminder
  */
 export async function createReminder(listName: string, title: string, dueDate?: string, notes?: string): Promise<boolean> {
-  let script = `
-    tell application "Reminders"
-      tell list "${listName}"
-        make new reminder with properties {name:"${title.replace(/"/g, '\\"')}"`;
-  
-  if (dueDate) {
-    // Format the date for AppleScript
-    const formattedDate = formatDateForAppleScript(dueDate);
-    script += `, due date:date "${formattedDate}"`;
+  try {
+    // First get the list ID by name
+    const lists = await reminders.getLists();
+    const targetList = lists.find(list => list.name === listName);
+    
+    if (!targetList) {
+      throw new Error(`List "${listName}" not found`);
+    }
+    
+    // Prepare reminder data
+    const reminderData: any = {
+      name: title
+    };
+    
+    if (dueDate) {
+      reminderData.dueDate = new Date(dueDate);
+    }
+    
+    if (notes) {
+      reminderData.body = notes;
+    }
+    
+    // Create the reminder
+    const newReminderId = await reminders.createReminder(targetList.id, reminderData);
+    
+    return !!newReminderId;
+  } catch (error) {
+    console.error(`Failed to create reminder "${title}" in list "${listName}":`, error);
+    throw new Error(`Failed to create reminder: ${error}`);
   }
-  
-  if (notes) {
-    script += `, body:"${notes.replace(/"/g, '\\"')}"`;
-  }
-  
-  script += `}
-      end tell
-    end tell
-    return true
-  `;
-  
-  const result = await runAppleScript(script);
-  return result === 'true';
 }
 
 /**
  * Mark a reminder as completed
  */
 export async function completeReminder(listName: string, reminderName: string): Promise<boolean> {
-  const script = `
-    tell application "Reminders"
-      tell list "${listName}"
-        set theReminders to (reminders whose name is "${reminderName.replace(/"/g, '\\"')}")
-        if length of theReminders > 0 then
-          set completed of item 1 of theReminders to true
-          return true
-        else
-          return false
-        end if
-      end tell
-    end tell
-  `;
-  
-  const result = await runAppleScript(script);
-  return result === 'true';
+  try {
+    // First get the list ID by name
+    const lists = await reminders.getLists();
+    const targetList = lists.find(list => list.name === listName);
+    
+    if (!targetList) {
+      throw new Error(`List "${listName}" not found`);
+    }
+    
+    // Get all reminders from the list
+    const reminderItems = await reminders.getReminders(
+      targetList.id,
+      ['name', 'id']
+    );
+    
+    // Find the specific reminder by name
+    const targetReminder = reminderItems.find(item => item.name === reminderName);
+    
+    if (!targetReminder) {
+      return false; // Reminder not found
+    }
+    
+    // Update the reminder to mark it as completed
+    await reminders.updateReminder(targetReminder.id, {
+      completed: true
+    });
+    
+    return true;
+  } catch (error) {
+    console.error(`Failed to complete reminder "${reminderName}" in list "${listName}":`, error);
+    throw new Error(`Failed to complete reminder: ${error}`);
+  }
 }
 
 /**
  * Delete a reminder
  */
 export async function deleteReminder(listName: string, reminderName: string): Promise<boolean> {
-  const script = `
-    tell application "Reminders"
-      tell list "${listName}"
-        set theReminders to (reminders whose name is "${reminderName.replace(/"/g, '\\"')}")
-        if length of theReminders > 0 then
-          delete item 1 of theReminders
-          return true
-        else
-          return false
-        end if
-      end tell
-    end tell
-  `;
-  
-  const result = await runAppleScript(script);
-  return result === 'true';
+  try {
+    // First get the list ID by name
+    const lists = await reminders.getLists();
+    const targetList = lists.find(list => list.name === listName);
+    
+    if (!targetList) {
+      throw new Error(`List "${listName}" not found`);
+    }
+    
+    // Get all reminders from the list
+    const reminderItems = await reminders.getReminders(
+      targetList.id,
+      ['name', 'id']
+    );
+    
+    // Find the specific reminder by name
+    const targetReminder = reminderItems.find(item => item.name === reminderName);
+    
+    if (!targetReminder) {
+      return false; // Reminder not found
+    }
+    
+    // Delete the reminder
+    await reminders.deleteReminder(targetReminder.id);
+    
+    return true;
+  } catch (error) {
+    console.error(`Failed to delete reminder "${reminderName}" in list "${listName}":`, error);
+    throw new Error(`Failed to delete reminder: ${error}`);
+  }
 } 
