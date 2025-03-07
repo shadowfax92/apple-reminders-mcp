@@ -17,6 +17,49 @@ async function runAppleScript(script: string): Promise<string> {
 }
 
 /**
+ * Format a date string for AppleScript
+ */
+function formatDateForAppleScript(dateString: string): string {
+  // Parse the ISO date string
+  const date = new Date(dateString);
+  
+  // Format for AppleScript: "month/day/year hour:minute:00 AM/PM"
+  const month = date.getMonth() + 1; // getMonth() is 0-indexed
+  const day = date.getDate();
+  const year = date.getFullYear();
+  
+  let hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  
+  // Convert to 12-hour format
+  hours = hours % 12;
+  hours = hours ? hours : 12; // the hour '0' should be '12'
+  
+  // Format the date string
+  return `${month}/${day}/${year} ${hours}:${minutes.toString().padStart(2, '0')}:00 ${ampm}`;
+}
+
+/**
+ * Try to parse an AppleScript date string to ISO format
+ */
+function parseAppleScriptDate(dateString: string): string | null {
+  if (!dateString || dateString === 'missing value') return null;
+  
+  try {
+    // Try to parse the date - this is a best effort since AppleScript
+    // returns dates in various formats
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      return dateString; // Return original if parsing fails
+    }
+    return date.toISOString();
+  } catch (error) {
+    return dateString; // Return original if parsing fails
+  }
+}
+
+/**
  * Get all reminder lists
  */
 export async function getRemindersLists(): Promise<string[]> {
@@ -65,7 +108,7 @@ export async function getRemindersFromList(listName: string): Promise<any[]> {
     return {
       name,
       completed: completed === 'true',
-      dueDate: dueDate || null,
+      dueDate: parseAppleScriptDate(dueDate),
       priority: parseInt(priority) || 0
     };
   });
@@ -81,7 +124,9 @@ export async function createReminder(listName: string, title: string, dueDate?: 
         make new reminder with properties {name:"${title.replace(/"/g, '\\"')}"`;
   
   if (dueDate) {
-    script += `, due date:date "${dueDate}"`;
+    // Format the date for AppleScript
+    const formattedDate = formatDateForAppleScript(dueDate);
+    script += `, due date:date "${formattedDate}"`;
   }
   
   if (notes) {

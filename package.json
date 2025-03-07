@@ -9,7 +9,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node --esm src/index.ts",
-    "test": "node dist/test-reminders.js"
+    "test": "node dist/tests/test-reminders.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.1",

@@ -1,4 +1,4 @@
-import * as reminders from './reminders.js';
+import * as reminders from '../reminders.js';
 
 /**
  * Test all reminders functions
