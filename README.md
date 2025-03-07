@@ -11,7 +11,6 @@ A Model Context Protocol (MCP) server for interacting with Apple Reminders on ma
 - **Delete Reminders**: Remove reminders from your lists
 - **Date Handling**: Proper handling of ISO date formats for due dates
 
-
 ## Configuration
 
 ### Usage with Claude Desktop
@@ -86,61 +85,6 @@ This MCP server uses AppleScript to interact with the Apple Reminders app on mac
 ## Development
 
 This project uses TypeScript and the MCP SDK. To extend functionality, modify the tools in `src/index.ts` and the AppleScript functions in `src/reminders.ts`.
-
-## Setup
-
-1. Install dependencies:
-   ```
-   npm install
-   ```
-   or
-   ```
-   yarn install
-   ```
-
-2. Build the project:
-   ```
-   npm run build
-   ```
-   or
-   ```
-   yarn build
-   ```
-
-3. Run the server:
-   ```
-   npm start
-   ```
-   or
-   ```
-   yarn start
-   ```
-
-For development:
-```
-npm run dev
-```
-or
-```
-yarn dev
-```
-
-### Testing
-
-Run all tests:
-```
-npm test
-```
-or
-```
-yarn test
-```
-
-Test specific functionality:
-```
-yarn test:reminders  # Test basic reminder functions
-yarn test:date       # Test date handling
-```
 
 ## Requirements
 
